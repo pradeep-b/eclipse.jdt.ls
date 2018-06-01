@@ -27,6 +27,7 @@ import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.formatter.DefaultCodeFormatterConstants;
 import org.eclipse.jdt.core.manipulation.CodeStyleConfiguration;
 import org.eclipse.jdt.internal.corext.util.CodeFormatterUtil;
+import org.eclipse.jdt.ls.core.internal.IConstants;
 import org.eclipse.jdt.ls.core.internal.JavaLanguageServerPlugin;
 import org.eclipse.jdt.ls.core.internal.StatusFactory;
 import org.eclipse.jdt.ls.core.internal.corext.codemanipulation.CodeGenerationSettings;
@@ -44,6 +45,7 @@ import org.eclipse.m2e.core.embedder.IMavenConfiguration;
 public class PreferenceManager {
 
 	private Preferences preferences ;
+	private static final String M2E_APT_ID = "org.jboss.tools.maven.apt";
 	private ClientPreferences clientPreferences;
 	private IMavenConfiguration mavenConfig;
 	private ListenerList<IPreferencesChangeListener> preferencesChangeListeners;
@@ -52,7 +54,7 @@ public class PreferenceManager {
 	public PreferenceManager() {
 		preferences = new Preferences();
 		preferencesChangeListeners = new ListenerList<>();
-		eclipsePrefs = InstanceScope.INSTANCE.getNode(JavaLanguageServerPlugin.PLUGIN_ID);
+		eclipsePrefs = InstanceScope.INSTANCE.getNode(IConstants.PLUGIN_ID);
 		initialize();
 	}
 
@@ -60,7 +62,7 @@ public class PreferenceManager {
 	 * Initialize default preference values of used bundles to match server
 	 * functionality.
 	 */
-	public void initialize() {
+	public static void initialize() {
 		// Update JavaCore options
 		Hashtable<String, String> javaCoreOptions = JavaCore.getOptions();
 		javaCoreOptions.put(JavaCore.CODEASSIST_VISIBILITY_CHECK, JavaCore.ENABLED);
@@ -68,11 +70,16 @@ public class PreferenceManager {
 		JavaCore.setOptions(javaCoreOptions);
 
 		// Initialize default preferences
-		IEclipsePreferences defEclipsePrefs = DefaultScope.INSTANCE.getNode(JavaLanguageServerPlugin.PLUGIN_ID);
+		IEclipsePreferences defEclipsePrefs = DefaultScope.INSTANCE.getNode(IConstants.PLUGIN_ID);
 		defEclipsePrefs.put("org.eclipse.jdt.ui.typefilter.enabled", "");
 		defEclipsePrefs.put(CodeStyleConfiguration.ORGIMPORTS_IMPORTORDER, String.join(";", Preferences.JAVA_IMPORT_ORDER_DEFAULT));
 		defEclipsePrefs.put(CodeStyleConfiguration.ORGIMPORTS_ONDEMANDTHRESHOLD, "99");
 		defEclipsePrefs.put(CodeStyleConfiguration.ORGIMPORTS_STATIC_ONDEMANDTHRESHOLD, "99");
+
+		IEclipsePreferences m2eAptPrefs = DefaultScope.INSTANCE.getNode(M2E_APT_ID);
+		if (m2eAptPrefs != null) {
+			m2eAptPrefs.put(M2E_APT_ID + ".mode", "jdt_apt");
+		}
 	}
 
 	public void update(Preferences preferences) {
@@ -198,6 +205,20 @@ public class PreferenceManager {
 	 */
 	public IEclipsePreferences getEclipsePreferences() {
 		return eclipsePrefs;
+	}
+
+	/**
+	 * Checks whether the client supports class file contents
+	 */
+	public boolean isClientSupportsClassFileContent() {
+		return getClientPreferences() != null && getClientPreferences().isClassFileContentSupported();
+	}
+
+	/**
+	 * Checks whether the client supports markdown in completion
+	 */
+	public boolean isClientSupportsCompletionDocumentationMarkDown() {
+		return getClientPreferences() != null && getClientPreferences().isSupportsCompletionDocumentationMarkdown();
 	}
 
 }

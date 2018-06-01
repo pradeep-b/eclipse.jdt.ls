@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2016-2017 Red Hat Inc. and others.
+ * Copyright (c) 2016-2018 Red Hat Inc. and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,11 +15,13 @@ import static org.eclipse.jdt.ls.core.internal.handlers.MapFlattener.getList;
 import static org.eclipse.jdt.ls.core.internal.handlers.MapFlattener.getString;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
 import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jdt.core.manipulation.CodeStyleConfiguration;
@@ -38,6 +40,18 @@ public class Preferences {
 	 * Specifies the folder path to the JDK .
 	 */
 	public static final String JAVA_HOME = "java.home";
+	/**
+	 * Specifies the file path to the formatter xml url.
+	 */
+	public static final String JAVA_FORMATTER_URL = "java.format.settings.url";
+	/**
+	 * Specifies the formatter profile name.
+	 */
+	public static final String JAVA_FORMATTER_PROFILE_NAME = "java.format.settings.profile";
+	/**
+	 * Preference key used to include the comments during the formatting.
+	 */
+	public static final String JAVA_FORMAT_COMMENTS = "java.format.comments.enabled";
 	/**
 	 * Preference key to enable/disable gradle importer.
 	 */
@@ -60,6 +74,11 @@ public class Preferences {
 	 * Preference key to enable/disable formatter.
 	 */
 	public static final String JAVA_FORMAT_ENABLED_KEY = "java.format.enabled";
+
+	/**
+	 * Preference key to enable/disable formatter on-type.
+	 */
+	public static final String JAVA_FORMAT_ON_TYPE_ENABLED_KEY = "java.format.onType.enabled";
 
 	/**
 	 * Preference key to enable/disable organize imports on save
@@ -164,6 +183,7 @@ public class Preferences {
 
 	public static final String TEXT_DOCUMENT_FORMATTING = "textDocument/formatting";
 	public static final String TEXT_DOCUMENT_RANGE_FORMATTING = "textDocument/rangeFormatting";
+	public static final String TEXT_DOCUMENT_ON_TYPE_FORMATTING = "textDocument/onTypeFormatting";
 	public static final String TEXT_DOCUMENT_CODE_LENS = "textDocument/codeLens";
 	public static final String TEXT_DOCUMENT_SIGNATURE_HELP = "textDocument/signatureHelp";
 	public static final String TEXT_DOCUMENT_RENAME = "textDocument/rename";
@@ -179,6 +199,7 @@ public class Preferences {
 	public static final String WORKSPACE_CHANGE_FOLDERS = "workspace/didChangeWorkspaceFolders";
 
 	public static final String FORMATTING_ID = UUID.randomUUID().toString();
+	public static final String FORMATTING_ON_TYPE_ID = UUID.randomUUID().toString();
 	public static final String FORMATTING_RANGE_ID = UUID.randomUUID().toString();
 	public static final String CODE_LENS_ID = UUID.randomUUID().toString();
 	public static final String SIGNATURE_HELP_ID = UUID.randomUUID().toString();
@@ -202,12 +223,14 @@ public class Preferences {
 	private boolean importMavenEnabled;
 	private boolean implementationsCodeLensEnabled;
 	private boolean javaFormatEnabled;
+	private boolean javaFormatOnTypeEnabled;
 	private boolean javaSaveActionsOrganizeImportsEnabled;
 	private boolean signatureHelpEnabled;
 	private boolean renameEnabled;
 	private boolean executeCommandEnabled;
 	private boolean autobuildEnabled;
 	private boolean completionOverwrite;
+	private boolean javaFormatComments;
 	private MemberSortOrder memberOrders;
 	private List<String> preferredContentProviderIds;
 
@@ -218,6 +241,9 @@ public class Preferences {
 	private List<String> javaImportExclusions = new ArrayList<>();
 	private String javaHome;
 	private List<String> importOrder;
+	private String formatterUrl;
+	private String formatterProfileName;
+	private Collection<IPath> rootPaths;
 
 	static {
 		JAVA_IMPORT_EXCLUSIONS_DEFAULT = new ArrayList<>();
@@ -290,17 +316,21 @@ public class Preferences {
 		referencesCodeLensEnabled = true;
 		implementationsCodeLensEnabled = false;
 		javaFormatEnabled = true;
+		javaFormatOnTypeEnabled = false;
 		javaSaveActionsOrganizeImportsEnabled = false;
 		signatureHelpEnabled = false;
 		renameEnabled = true;
 		executeCommandEnabled = true;
 		autobuildEnabled = true;
 		completionOverwrite = true;
+		javaFormatComments = true;
 		memberOrders = new MemberSortOrder(null);
 		preferredContentProviderIds = null;
 		javaImportExclusions = JAVA_IMPORT_EXCLUSIONS_DEFAULT;
 		javaCompletionFavoriteMembers = JAVA_COMPLETION_FAVORITE_MEMBERS_DEFAULT;
 		javaHome = null;
+		formatterUrl = null;
+		formatterProfileName = null;
 		importOrder = JAVA_IMPORT_ORDER_DEFAULT;
 	}
 
@@ -332,6 +362,9 @@ public class Preferences {
 
 		boolean javaFormatEnabled = getBoolean(configuration, JAVA_FORMAT_ENABLED_KEY, true);
 		prefs.setJavaFormatEnabled(javaFormatEnabled);
+
+		boolean javaFormatOnTypeEnabled = getBoolean(configuration, JAVA_FORMAT_ON_TYPE_ENABLED_KEY, false);
+		prefs.setJavaFormatOnTypeEnabled(javaFormatOnTypeEnabled);
 
 		boolean javaSaveActionAutoOrganizeImportsEnabled = getBoolean(configuration, JAVA_SAVE_ACTIONS_ORGANIZE_IMPORTS_KEY, false);
 		prefs.setJavaSaveActionAutoOrganizeImportsEnabled(javaSaveActionAutoOrganizeImportsEnabled);
@@ -369,6 +402,15 @@ public class Preferences {
 		String javaHome = getString(configuration, JAVA_HOME);
 		prefs.setJavaHome(javaHome);
 
+		String formatterUrl = getString(configuration, JAVA_FORMATTER_URL);
+		prefs.setFormatterUrl(formatterUrl);
+
+		String formatterProfileName = getString(configuration, JAVA_FORMATTER_PROFILE_NAME);
+		prefs.setFormatterProfileName(formatterProfileName);
+
+		boolean javaFormatComments = getBoolean(configuration, JAVA_FORMAT_COMMENTS, true);
+		prefs.setJavaFormatComments(javaFormatComments);
+
 		List<String> javaImportOrder = getList(configuration, JAVA_IMPORT_ORDER_KEY, JAVA_IMPORT_ORDER_DEFAULT);
 		prefs.setImportOrder(javaImportOrder);
 		return prefs;
@@ -376,6 +418,25 @@ public class Preferences {
 
 	public Preferences setJavaHome(String javaHome) {
 		this.javaHome = javaHome;
+		return this;
+	}
+
+	public Preferences setFormatterUrl(String formatterUrl) {
+		this.formatterUrl = formatterUrl;
+		return this;
+	}
+
+	public Preferences setJavaFormatComments(boolean javaFormatComments) {
+		this.javaFormatComments = javaFormatComments;
+		return this;
+	}
+
+	public boolean isJavaFormatComments() {
+		return this.javaFormatComments;
+	}
+
+	public Preferences setFormatterProfileName(String formatterProfileName) {
+		this.formatterProfileName = formatterProfileName;
 		return this;
 	}
 
@@ -491,6 +552,14 @@ public class Preferences {
 		return javaHome;
 	}
 
+	public String getFormatterUrl() {
+		return formatterUrl;
+	}
+
+	public String getFormatterProfileName() {
+		return formatterProfileName;
+	}
+
 	public MemberSortOrder getMemberSortOrder() {
 		return this.memberOrders;
 	}
@@ -565,5 +634,22 @@ public class Preferences {
 			return null;
 		}
 		return Collections.unmodifiableMap(configuration);
+	}
+
+	public Preferences setRootPaths(Collection<IPath> rootPaths) {
+		this.rootPaths = rootPaths;
+		return this;
+	}
+
+	public Collection<IPath> getRootPaths() {
+		return rootPaths;
+	}
+
+	public boolean isJavaFormatOnTypeEnabled() {
+		return javaFormatOnTypeEnabled;
+	}
+
+	public void setJavaFormatOnTypeEnabled(boolean javaFormatOnTypeEnabled) {
+		this.javaFormatOnTypeEnabled = javaFormatOnTypeEnabled;
 	}
 }

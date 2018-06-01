@@ -18,11 +18,18 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
+import org.apache.commons.io.FileUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.IProjectDescription;
+import org.eclipse.core.resources.IWorkspace;
+import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.jobs.IJobChangeEvent;
 import org.eclipse.core.runtime.jobs.Job;
@@ -146,10 +153,60 @@ public class MavenProjectImporterTest extends AbstractMavenBasedTest {
 	}
 
 	@Test
+	public void testPreexistingIProjectDifferentName() throws Exception {
+		File from = new File(getSourceProjectDirectory(), "maven/salut");
+		Path projectDir = Files.createTempDirectory("testImportDifferentName");
+
+		IWorkspaceRoot wsRoot = WorkspaceHelper.getWorkspaceRoot();
+		IWorkspace workspace = wsRoot.getWorkspace();
+		String projectName = projectDir.getFileName().toString();
+		IProject salut = wsRoot.getProject("salut");
+		salut.delete(true, monitor);
+		IProjectDescription description = workspace.newProjectDescription(projectName);
+		description.setLocation(new org.eclipse.core.runtime.Path(projectDir.toFile().getAbsolutePath()));
+
+		IProject project = wsRoot.getProject(projectName);
+		project.create(description, monitor);
+
+
+		assertTrue(WorkspaceHelper.getAllProjects().contains(project));
+
+		FileUtils.copyDirectory(from, projectDir.toFile());
+
+		assertTrue(project.exists());
+		Job updateJob = projectsManager.updateWorkspaceFolders(Collections.singleton(new org.eclipse.core.runtime.Path(projectDir.toString())), Collections.emptySet());
+		updateJob.join(20000, monitor);
+		assertTrue("Failed to import preexistingProjectTest:\n" + updateJob.getResult().getException(), updateJob.getResult().isOK());
+	}
+
+	@Test
+	public void testPreexistingIProjectSameName() throws Exception {
+		File from = new File(getSourceProjectDirectory(), "maven/salut");
+		Path workspaceDir = Files.createTempDirectory("preexistingProjectTest");
+		Path projectDir = Files.createDirectory(workspaceDir.resolve("TheSalutProject"));
+		FileUtils.copyDirectory(from, projectDir.toFile());
+
+		projectsManager.initializeProjects(Collections.singleton(new org.eclipse.core.runtime.Path(workspaceDir.toString())), monitor);
+
+		Job updateJob = projectsManager.updateWorkspaceFolders(Collections.singleton(new org.eclipse.core.runtime.Path(workspaceDir.toString())), Collections.emptySet());
+		updateJob.join(20000, monitor);
+		assertTrue("Failed to import testImportDifferentName:\n" + updateJob.getResult().getException(), updateJob.getResult().isOK());
+	}
+
+	@Test
 	public void testJava9Project() throws Exception {
 		IProject project = importMavenProject("salut-java9");
 		assertIsJavaProject(project);
 		assertEquals("9", getJavaSourceLevel(project));
+		assertNoErrors(project);
+	}
+
+	@Test
+	public void testAnnotationProcessing() throws Exception {
+		IProject project = importMavenProject("autovalued");
+		assertIsJavaProject(project);
+		IFile autovalueFoo = project.getFile("target/generated-sources/annotations/foo/bar/AutoValue_Foo.java");
+		assertTrue(autovalueFoo.getRawLocation() + " was not generated", autovalueFoo.exists());
 		assertNoErrors(project);
 	}
 

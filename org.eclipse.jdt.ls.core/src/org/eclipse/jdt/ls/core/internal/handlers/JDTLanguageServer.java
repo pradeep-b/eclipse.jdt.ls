@@ -16,6 +16,8 @@ import static org.eclipse.jdt.ls.core.internal.JavaLanguageServerPlugin.logInfo;
 import java.io.File;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -29,6 +31,7 @@ import java.util.function.Function;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
@@ -51,6 +54,7 @@ import org.eclipse.jdt.ls.core.internal.LanguageServerWorkingCopyOwner;
 import org.eclipse.jdt.ls.core.internal.ServiceStatus;
 import org.eclipse.jdt.ls.core.internal.lsp.JavaProtocolExtensions;
 import org.eclipse.jdt.ls.core.internal.managers.ContentProviderManager;
+import org.eclipse.jdt.ls.core.internal.managers.FormatterManager;
 import org.eclipse.jdt.ls.core.internal.managers.ProjectsManager;
 import org.eclipse.jdt.ls.core.internal.preferences.PreferenceManager;
 import org.eclipse.jdt.ls.core.internal.preferences.Preferences;
@@ -61,6 +65,7 @@ import org.eclipse.lsp4j.CodeLensParams;
 import org.eclipse.lsp4j.Command;
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.CompletionList;
+import org.eclipse.lsp4j.CompletionParams;
 import org.eclipse.lsp4j.DidChangeConfigurationParams;
 import org.eclipse.lsp4j.DidChangeTextDocumentParams;
 import org.eclipse.lsp4j.DidChangeWatchedFilesParams;
@@ -70,6 +75,7 @@ import org.eclipse.lsp4j.DidOpenTextDocumentParams;
 import org.eclipse.lsp4j.DidSaveTextDocumentParams;
 import org.eclipse.lsp4j.DocumentFormattingParams;
 import org.eclipse.lsp4j.DocumentHighlight;
+import org.eclipse.lsp4j.DocumentOnTypeFormattingOptions;
 import org.eclipse.lsp4j.DocumentOnTypeFormattingParams;
 import org.eclipse.lsp4j.DocumentRangeFormattingParams;
 import org.eclipse.lsp4j.DocumentSymbolParams;
@@ -106,7 +112,7 @@ import org.eclipse.lsp4j.services.WorkspaceService;
  * @author Gorkem Ercan
  *
  */
-public class JDTLanguageServer implements LanguageServer, TextDocumentService, WorkspaceService,JavaProtocolExtensions{
+public class JDTLanguageServer implements LanguageServer, TextDocumentService, WorkspaceService, JavaProtocolExtensions {
 
 	public static final String JAVA_LSP_JOIN_ON_COMPLETION = "java.lsp.joinOnCompletion";
 	/**
@@ -211,6 +217,10 @@ public class JDTLanguageServer implements LanguageServer, TextDocumentService, W
 		if (preferenceManager.getClientPreferences().isRangeFormattingDynamicRegistrationSupported()) {
 			toggleCapability(preferenceManager.getPreferences().isJavaFormatEnabled(), Preferences.FORMATTING_RANGE_ID, Preferences.TEXT_DOCUMENT_RANGE_FORMATTING, null);
 		}
+		if (preferenceManager.getClientPreferences().isOnTypeFormattingDynamicRegistrationSupported()) {
+			toggleCapability(preferenceManager.getPreferences().isJavaFormatOnTypeEnabled(), Preferences.FORMATTING_ON_TYPE_ID, Preferences.TEXT_DOCUMENT_ON_TYPE_FORMATTING,
+					new DocumentOnTypeFormattingOptions(";", Arrays.asList("\n", "}")));
+		}
 		if (preferenceManager.getClientPreferences().isCodeLensDynamicRegistrationSupported()) {
 			toggleCapability(preferenceManager.getPreferences().isCodeLensEnabled(), Preferences.CODE_LENS_ID, Preferences.TEXT_DOCUMENT_CODE_LENS, new CodeLensOptions(true));
 		}
@@ -283,7 +293,7 @@ public class JDTLanguageServer implements LanguageServer, TextDocumentService, W
 	@Override
 	public CompletableFuture<List<? extends SymbolInformation>> symbol(WorkspaceSymbolParams params) {
 		logInfo(">> workspace/symbol");
-		WorkspaceSymbolHandler handler = new WorkspaceSymbolHandler();
+		WorkspaceSymbolHandler handler = new WorkspaceSymbolHandler(preferenceManager);
 		return computeAsync((monitor) -> {
 			return handler.search(params.getQuery(), monitor);
 		});
@@ -297,9 +307,11 @@ public class JDTLanguageServer implements LanguageServer, TextDocumentService, W
 		logInfo(">> workspace/didChangeConfiguration");
 		Object settings = JSONUtility.toModel(params.getSettings(), Map.class);
 		if (settings instanceof Map) {
+			Collection<IPath> rootPaths = preferenceManager.getPreferences().getRootPaths();
 			@SuppressWarnings("unchecked")
 			Preferences prefs = Preferences.createFrom((Map<String, Object>) settings);
 			preferenceManager.update(prefs);
+			preferenceManager.getPreferences().setRootPaths(rootPaths);
 		}
 		syncCapabilitiesToSettings();
 		boolean jvmChanged = false;
@@ -319,6 +331,7 @@ public class JDTLanguageServer implements LanguageServer, TextDocumentService, W
 			JavaLanguageServerPlugin.logException(e.getMessage(), e);
 		}
 		pm.registerWatchers();
+		FormatterManager.configureFormatter(preferenceManager, pm);
 		logInfo(">>New configuration: " + settings);
 	}
 
@@ -397,10 +410,10 @@ public class JDTLanguageServer implements LanguageServer, TextDocumentService, W
 	}
 
 	/* (non-Javadoc)
-	 * @see org.eclipse.lsp4j.services.TextDocumentService#completion(org.eclipse.lsp4j.TextDocumentPositionParams)
+	 * @see org.eclipse.lsp4j.services.TextDocumentService#completion(org.eclipse.lsp4j.CompletionParams)
 	 */
 	@Override
-	public CompletableFuture<Either<List<CompletionItem>, CompletionList>> completion(TextDocumentPositionParams position) {
+	public CompletableFuture<Either<List<CompletionItem>, CompletionList>> completion(CompletionParams position) {
 		logInfo(">> document/completion");
 		CompletionHandler handler = new CompletionHandler();
 		final IProgressMonitor[] monitors = new IProgressMonitor[1];
@@ -568,8 +581,8 @@ public class JDTLanguageServer implements LanguageServer, TextDocumentService, W
 	@Override
 	public CompletableFuture<List<? extends TextEdit>> onTypeFormatting(DocumentOnTypeFormattingParams params) {
 		logInfo(">> document/onTypeFormatting");
-		// Not yet implemented
-		return null;
+		FormatterHandler handler = new FormatterHandler(preferenceManager);
+		return computeAsync((monitor) -> handler.onTypeFormatting(params, monitor));
 	}
 
 	/* (non-Javadoc)

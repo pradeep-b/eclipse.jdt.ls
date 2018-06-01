@@ -17,6 +17,7 @@ import java.util.Map;
 
 import org.eclipse.lsp4j.ClientCapabilities;
 import org.eclipse.lsp4j.DynamicRegistrationCapabilities;
+import org.eclipse.lsp4j.MarkupKind;
 
 /**
  * A wrapper around {@link ClientCapabilities}
@@ -73,6 +74,10 @@ public class ClientPreferences {
 
 	public boolean isRangeFormattingDynamicRegistrationSupported() {
 		return v3supported && isDynamicRegistrationSupported(capabilities.getTextDocument().getRangeFormatting());
+	}
+
+	public boolean isOnTypeFormattingDynamicRegistrationSupported() {
+		return v3supported && isDynamicRegistrationSupported(capabilities.getTextDocument().getOnTypeFormatting());
 	}
 
 	public boolean isCodeLensDynamicRegistrationSupported() {
@@ -141,6 +146,19 @@ public class ClientPreferences {
 
 	public boolean isProgressReportSupported() {
 		return Boolean.parseBoolean(extendedClientCapabilities.getOrDefault("progressReportProvider", "false").toString());
+	}
+
+	public boolean isClassFileContentSupported() {
+		return Boolean.parseBoolean(extendedClientCapabilities.getOrDefault("classFileContentsSupport", "false").toString());
+	}
+
+	public boolean isSupportsCompletionDocumentationMarkdown() {
+		//@formatter:off
+		return v3supported && capabilities.getTextDocument().getCompletion() != null
+				&& capabilities.getTextDocument().getCompletion().getCompletionItem() != null
+				&& capabilities.getTextDocument().getCompletion().getCompletionItem().getDocumentationFormat() != null
+				&& capabilities.getTextDocument().getCompletion().getCompletionItem().getDocumentationFormat().contains(MarkupKind.MARKDOWN);
+		//@formatter:on
 	}
 
 }
